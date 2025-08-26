@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# --- Check if Docker is installed ---
+if ! command -v docker >/dev/null 2>&1; then
+  echo "❌ Docker is not installed or not in your PATH."
+  echo "👉 Install Docker: https://docs.docker.com/get-docker/"
+  exit 1
+fi
+
+IMAGE="easynmap"
+CONTAINER="easynmap"
+
+ACTION="${1:-up}"        # default: up
+PORT_HTTP="${2:-8080}"   # host -> container 80
+PORT_TCP="${3:-1337}"    # host -> container 1337
+
+# Generate N random fake ports avoiding PORT_HTTP/PORT_TCP and duplicates
+gen_fake_ports() {
+  local n="${1:-8}"
+  local -a arr=()
+  while [ "${#arr[@]}" -lt "$n" ]; do
+    # pick 1025–60000 (avoid well-known <1024)
+    local p=$(( (RANDOM % 58976) + 1025 ))
+    case " ${arr[*]-} " in *" $p "*) continue ;; esac
+    [ "$p" = "$PORT_HTTP" ] && continue
+    [ "$p" = "$PORT_TCP" ] && continue
+    arr+=("$p")
+  done
+  echo "${arr[*]-}"   # space-separated
+}
+
+# Read fake ports into array, using mapfile if available (Bash 4/5), else portable fallback
+read_fake_ports_array() {
+  local n="${1:-8}"
+  if [ "$(type -t mapfile 2>/dev/null || true)" = "builtin" ]; then
+    # Bash 4/5 path
+    mapfile -t FAKE_PORTS < <(gen_fake_ports "$n")
+  else
+    # Bash 3.2 portable path
+    local ports_str
+    ports_str="$(gen_fake_ports "$n")"
+    # shellcheck disable=SC2206
+    FAKE_PORTS=( $ports_str )
+  fi
+}
+
+case "$ACTION" in
+  up)
+    echo "▶ Building image…"
+    docker build -t "$IMAGE" .
+
+    echo "▶ Removing old container…"
+    docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+
+    # 1) Generate 8 random fake ports (space-separated string -> array)
+    FAKE_PORTS_STR="$(gen_fake_ports 8)"
+  # shellcheck disable=SC2206
+  FAKE_PORTS=( $FAKE_PORTS_STR )
+  FAKE_PORTS_CSV=$(IFS=,; echo "${FAKE_PORTS[*]-}")
+
+  # 2) Build -p args correctly: ONE mapping per fake port
+  PORT_ARGS=(-p "${PORT_HTTP}:80" -p "${PORT_TCP}:1337")
+  for p in "${FAKE_PORTS[@]-}"; do
+    PORT_ARGS+=(-p "${p}:${p}")
+  done
+
+    echo "▶ Running container…"
+
+    docker run -d --name "$CONTAINER" \
+      -e "FAKE_PORTS=${FAKE_PORTS_CSV}" \
+      "${PORT_ARGS[@]}" \
+      "$IMAGE"
+
+    echo "✅ Up!"
+    ;;
+  stop)
+    echo "▶ Stopping container…"
+    docker rm -f "$CONTAINER" && echo "✅ Stopped."
+    ;;
+  logs)
+    docker logs -f "$CONTAINER"
+    ;;
+  *)
+    echo "Usage: $0 [up|stop|logs] [http_port] [tcp_port]"
+    echo "Examples:"
+    echo "  $0 up                 # HTTP 8080, TCP 1337, + 8 random fake ports"
+    echo "  $0 up 9090 31337      # custom ports"
+    exit 1
+    ;;
+esac

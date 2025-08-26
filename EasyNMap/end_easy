@@ -1,0 +1,20 @@
+#!/bin/bash
+set -euo pipefail
+
+CONTAINER="easynmap"
+
+# Find docker even if sudo trims PATH
+DOCKER_BIN="$(command -v docker || true)"
+if [[ -z "${DOCKER_BIN}" ]]; then
+  echo "Docker not installed"
+  exit 1
+fi
+
+# Stop/remove the container if it exists
+if "$DOCKER_BIN" ps -a --format '{{.Names}}' | grep -qw "$CONTAINER"; then
+  echo "▶ Stopping and removing container '$CONTAINER'..."
+  "$DOCKER_BIN" rm -f "$CONTAINER" >/dev/null 2>&1 || true
+  echo "✅ Container stopped and removed."
+else
+  echo "ℹ️ No container named '$CONTAINER' is running."
+fi
