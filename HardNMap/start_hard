@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# --- derive names from current folder ---
+BASE="$(basename "$PWD" | tr '[:upper:]' '[:lower:]')"   # e.g., hardnmap
+IMAGE_NAME="nmapctf-${BASE}"
+CONTAINER_NAME="${BASE}-container"
+
+# --- required files present? ---
+need=(Dockerfile supervisord.conf HTTPServer.py TCPServer.py HTTPSServer_hard.py fakeports.py)
+for f in "${need[@]}"; do
+  [[ -f "$f" ]] || { echo "ERROR: missing $f in $(pwd)"; exit 1; }
+done
+
+# --- pick docker runner (with sudo if needed on Kali) ---
+DOCKER="docker"
+if ! $DOCKER info >/dev/null 2>&1; then
+  if command -v sudo >/dev/null 2>&1 && sudo -n docker info >/dev/null 2>&1; then
+    DOCKER="sudo docker"
+  else
+    echo "ERROR: Docker daemon not reachable. Start Docker (or install/enable it), then retry."
+    exit 1
+  fi
+fi
+
+echo "[*] Building image: $IMAGE_NAME"
+$DOCKER build -t "$IMAGE_NAME" .
+
+echo "[*] (Re)starting container: $CONTAINER_NAME"
+$DOCKER rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+
+# single-line run to avoid backslash/CRLF issues across OSes
+$DOCKER run -d --name "$CONTAINER_NAME" \
+  -p 8080:8080 -p 2222:2222 -p 8443:8443 \
+  -p 9999:9999 -p 10001:10001 -p 12345:12345 \
+  "$IMAGE_NAME"
+
+echo "[+] Hard Nmap CTF is running."
+$DOCKER ps --filter "name=$CONTAINER_NAME"
+echo "Target = localhost (or your Docker host IP)"

@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+BASE="$(basename "$PWD" | tr '[:upper:]' '[:lower:]')"
+CONTAINER_NAME="${BASE}-container"
+
+DOCKER="docker"
+if ! $DOCKER info >/dev/null 2>&1; then
+  if command -v sudo >/dev/null 2>&1 && sudo -n docker info >/dev/null 2>&1; then
+    DOCKER="sudo docker"
+  else
+    echo "Docker not reachable; nothing to stop."
+    exit 0
+  fi
+fi
+
+echo "[*] Stopping/removing $CONTAINER_NAME"
+$DOCKER rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+echo "[+] Done."
